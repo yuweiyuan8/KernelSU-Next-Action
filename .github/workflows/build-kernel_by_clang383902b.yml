@@ -57,10 +57,11 @@ jobs:
 
     - name: Download clang-383902b
       run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace
-        mkdir clang-aosp
-        git clone https://github.com/tomxi1997/Toolchain.git clang-aosp --depth=1
-          
+        cd $HOME
+          mkdir proton-clang
+          cd proton-clang
+          wget https://github.com/kdrag0n/proton-clang/archive/refs/tags/20210522.zip
+          unzip 20210522.zip
         
 
     
@@ -162,87 +163,45 @@ jobs:
 
     - name: Build kernel
       run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-        
-        bash build.sh lmi
-            
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          export KBUILD_BUILD_HOST=Github-Action
+          export KBUILD_BUILD_USER=$(echo ${{ github.actor }} | tr A-Z a-z)
+          bash build.sh lmi
     - name: Check a kernel output files
       run: |
-       cd $GITHUB_WORKSPACE/kernel_workspace
-       if [ -f android-kernel/out/arch/${{ env.ARCH }}/boot/${{ env.KERNEL_IMAGE_NAME }} ]; then
-           echo "CHECK_FILE_IS_OK=true" >> $GITHUB_ENV
-       else
-           echo "Kernel output file is empty"
-           exit 1
-       fi
-       if [ ${{ env.NEED_DTBO }} = true ]; then
-           if [ -f android-kernel/out/arch/${{ env.ARCH }}/boot/dtbo.img ]; then
-               echo "CHECK_DTBO_IS_OK=true" >> $GITHUB_ENV
-           else
-               echo "DTBO image is empty"
-               exit 1
-           fi
-       fi
-  
-    - name: Make Anykernel3
-      if: env.CHECK_FILE_IS_OK == 'true'
-      run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace
-        git clone https://github.com/NotZeetaa/AnyKernel3.git -b lmi
-        cp android-kernel/out/arch/${{ env.ARCH }}/boot/${{ env.KERNEL_IMAGE_NAME }} AnyKernel3/
-        if [ ${{ env.CHECK_DTBO_IS_OK }} = true ]; then
-            cp android-kernel/out/arch/${{ env.ARCH }}/boot/dtbo.img AnyKernel3/
-        fi
-        rm -rf AnyKernel3/.git* AnyKernel3/README.md
-
-    - name: Make boot image with magiskboot
-      if: env.HAVE_SOURCE_BOOT_IMAGE == 'true' && env.CHECK_FILE_IS_OK == 'true' && env.BUILD_BOOT_IMG == 'true'
-      run: |
-        cd $GITHUB_WORKSPACE/kernel_workspace
-        wget -O magisk.tar.xz https://github.com/tomxi1997/KernelSU-Next-Action/releases/download/v1/magiskboot.tar.xz
-        tar -xf magisk.tar.xz
-        sudo chmod +x magiskboot
-        mkdir -p ./tmp
-        cp magiskboot ./tmp
-        cp boot-source.img ./tmp/boot.img
-        cd ./tmp
-        ./magiskboot unpack boot.img 
-        rm kernel
-        cp ../android-kernel/out/arch/${{ env.ARCH }}/boot/${{ env.KERNEL_IMAGE_NAME }} ./kernel
-        ./magiskboot repack boot.img 
-        cp new-boot.img $GITHUB_WORKSPACE/kernel_workspace/boot.img
-        cd ..
-        if [ -f boot.img ]; then
-            echo "MAKE_BOOT_IMAGE_IS_OK=true" >> $GITHUB_ENV
-        else
-            echo "Boot image is empty"
-            exit 1
-        fi
-    
-    - name: Upload ${{ env.KERNEL_IMAGE_NAME }}
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          count=1
+          for file in *.zip; do
+            if [ -f "$file" ]; then
+              echo "file$count=$file" >> $GITHUB_ENV
+              mkdir file$count
+              cd file$count
+              unzip ../$file
+              cd ..
+              count=$((count + 1))
+            fi
+          done
+          for i in {1..2}; do
+            file_var="file$i"
+            if [ -z "${{!env.file_var}}" ]; then
+              echo "${{env.file_var}} does not exist."
+              exit 1
+          else
+              echo "${{env.file_var}} exists: ${{!env.file_var}}"
+              echo "CHECK_FILE_IS_OK=true" >> $GITHUB_ENV
+          fi
+          done
+          
+    - name: Upload Artifact1
       if: env.CHECK_FILE_IS_OK == 'true'
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ env.KERNEL_IMAGE_NAME }}${{ env.UPLOADNAME }}-${{ env.DEVICE }}-${{ env.BUILD_TIME }}
-        path: kernel_workspace/android-kernel/out/arch/${{ env.ARCH }}/boot/${{ env.KERNEL_IMAGE_NAME }}
+          name: ${{ env.file1 }}
+          path: kernel_workspace/android-kernel/file1
 
-    - name: Upload AnyKernel3
+    - name: Upload Artifact2
       if: env.CHECK_FILE_IS_OK == 'true'
       uses: actions/upload-artifact@v4
       with:
-        name: AnyKernel3${{ env.UPLOADNAME }}-${{ env.DEVICE }}-${{ env.BUILD_TIME }}
-        path: kernel_workspace/AnyKernel3/*
-
-    - name: Upload DTBO image
-      if: env.CHECK_DTBO_IS_OK == 'true'
-      uses: actions/upload-artifact@v4
-      with:
-        name: dtbo-${{ env.DEVICE }}-${{ env.BUILD_TIME }}
-        path: kernel_workspace/android-kernel/out/arch/${{ env.ARCH }}/boot/dtbo.img
-
-    - name: Upload boot image
-      if: env.MAKE_BOOT_IMAGE_IS_OK == 'true'
-      uses: actions/upload-artifact@v4
-      with:
-        name: boot${{ env.UPLOADNAME }}-${{ env.DEVICE }}-${{ env.BUILD_TIME }}
-        path: kernel_workspace/boot.img
+          name: ${{ env.file2 }}
+          path: kernel_workspace/android-kernel/file2
